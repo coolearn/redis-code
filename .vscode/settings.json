@@ -10,6 +10,7 @@
         "__node_handle": "c",
         "dict.h": "c",
         "zmalloc.h": "c",
-        "socket_struct.h": "c"
+        "socket_struct.h": "c",
+        "sstream": "c"
     }
 }

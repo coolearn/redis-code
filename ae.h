@@ -54,7 +54,7 @@
 
 struct aeEventLoop;
 
-/* Types and data structures */
+/* Types and data structures */ // 回调函数
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
@@ -62,21 +62,21 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE) */
-    aeFileProc *rfileProc;
-    aeFileProc *wfileProc;
-    void *clientData;
+    int mask; /* one of AE_(READABLE|WRITABLE) */ // 可读、可写状态
+    aeFileProc *rfileProc; // 可读
+    aeFileProc *wfileProc; // 可写
+    void *clientData; // 数据
 } aeFileEvent;
 
-/* Time event structure */
+/* Time event structure */ // 超时
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
-    long when_sec; /* seconds */
-    long when_ms; /* milliseconds */
+    long when_sec; /* seconds */ // 时间戳（秒）
+    long when_ms; /* milliseconds */ // 时间戳（毫秒）
     aeTimeProc *timeProc;
-    aeEventFinalizerProc *finalizerProc;
+    aeEventFinalizerProc *finalizerProc; // 
     void *clientData;
-    struct aeTimeEvent *next;
+    struct aeTimeEvent *next; // 链表
 } aeTimeEvent;
 
 /* A fired event */
@@ -89,11 +89,13 @@ typedef struct aeFiredEvent {
 typedef struct aeEventLoop {
     int maxfd;
     long long timeEventNextId;
-    aeFileEvent events[AE_SETSIZE]; /* Registered events */
-    aeFiredEvent fired[AE_SETSIZE]; /* Fired events */
-    aeTimeEvent *timeEventHead;
-    int stop;
-    void *apidata; /* This is used for polling API specific data */
+    aeFileEvent events[AE_SETSIZE]; /* Registered events */ //  注册的事件
+    aeFiredEvent fired[AE_SETSIZE]; /* Fired events */ // 触发的事件
+    // 链表为空：直接创建
+    // 链表不为空：追加
+    aeTimeEvent *timeEventHead;  // NULL aeTimeEvent 节点
+    int stop; // 标志位
+    void *apidata; /* This is used for polling API specific data */ // ae_epoll -> aeApiState
     aeBeforeSleepProc *beforesleep;
 } aeEventLoop;
 
@@ -101,12 +103,10 @@ typedef struct aeEventLoop {
 aeEventLoop *aeCreateEventLoop(void);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
-int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData);
+int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,aeFileProc *proc, void *clientData);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc);
+        aeTimeProc *proc, void *clientData, aeEventFinalizerProc *finalizerProc);
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);

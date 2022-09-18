@@ -52,6 +52,7 @@
     #endif
 #endif
 
+// 初始化
 aeEventLoop *aeCreateEventLoop(void) {
     aeEventLoop *eventLoop;
     int i;
@@ -64,38 +65,42 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     if (aeApiCreate(eventLoop) == -1) {
-        zfree(eventLoop);
+        zfree(eventLoop); //释放空间
         return NULL;
     }
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    for (i = 0; i < AE_SETSIZE; i++)
-        eventLoop->events[i].mask = AE_NONE;
+    for (i = 0; i < AE_SETSIZE; i++) // AE_SETSIZE (1024*10) 10240
+        eventLoop->events[i].mask = AE_NONE; // 
     return eventLoop;
 }
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
-    aeApiFree(eventLoop);
-    zfree(eventLoop);
+    aeApiFree(eventLoop); // 释放 eventLoop -> apidata
+    zfree(eventLoop); // 
 }
 
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+// mask 读事件 ｜ 写事件 （可以同时是读写） 、*proc 读写事件
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    // eventLoop -> events[fd]  fileEvent 读写可以有读写俩个事件
+    // eventLoop->maxfd
     if (fd >= AE_SETSIZE) return AE_ERR;
     aeFileEvent *fe = &eventLoop->events[fd];
 
+    // aeApiAddEvent  -> apidata
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    fe->clientData = clientData;
-    if (fd > eventLoop->maxfd)
+    fe->clientData = clientData; // 相关的处理事件数据
+    if (fd > eventLoop->maxfd) // 检查是否比maxfd更大，设置最大的fd
         eventLoop->maxfd = fd;
     return AE_OK;
 }
@@ -106,12 +111,19 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
-    fe->mask = fe->mask & (~mask);
+    // mask = 11 读写(fd-mask)
+    // mask = 01 0写（参数-mask）
+    // mask = 10 取反
+    // mask = 10 和(fd-mask)&
+    // 得到最终的10 保留读事件
+    fe->mask = fe->mask & (~mask); // 将对应的文件描述符的指定事件删除
+    // 如果删除的fd是最大的 （全部清除的情况下 fe->mask == AE_NONE）
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
         int j;
 
-        for (j = eventLoop->maxfd-1; j >= 0; j--)
+        // 从后往前找fd，找到最后一个不等于AE_NONE的fd，更新maxfd
+        for (j = eventLoop->maxfd-1; j >= 0; j--) 
             if (eventLoop->events[j].mask != AE_NONE) break;
         eventLoop->maxfd = j;
     }
@@ -123,17 +135,17 @@ static void aeGetTime(long *seconds, long *milliseconds)
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
-    *seconds = tv.tv_sec;
-    *milliseconds = tv.tv_usec/1000;
+    *seconds = tv.tv_sec;  // 时间戳
+    *milliseconds = tv.tv_usec/1000; // 计算额外的微秒数
 }
 
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
-    when_ms = cur_ms + milliseconds%1000;
-    if (when_ms >= 1000) {
+    when_sec = cur_sec + milliseconds/1000;  // 1003ms 
+    when_ms = cur_ms + milliseconds%1000;   // 3ms 
+    if (when_ms >= 1000) { // 当前毫秒为980ms + 3ms > 1000了，需要在秒上处理
         when_sec ++;
         when_ms -= 1000;
     }
@@ -141,43 +153,48 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
+long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds, // 20s后超时
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
-    long long id = eventLoop->timeEventNextId++;
-    aeTimeEvent *te;
+    // xx++  ，先将值符给id，然后再自增
+    long long id = eventLoop->timeEventNextId++; // timeEventNextId 表示的是下一个id的值，id是当前的
+    aeTimeEvent *te;  
 
-    te = zmalloc(sizeof(*te));
+    te = zmalloc(sizeof(*te)); // 创建节点，申请内存
     if (te == NULL) return AE_ERR;
-    te->id = id;
-    aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
-    te->timeProc = proc;
-    te->finalizerProc = finalizerProc;
+    te->id = id; // 0 , 1 ,2 ,3 
+    aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms); // 计算超时后的时间
+    te->timeProc = proc; // 超时回调函数
+    te->finalizerProc = finalizerProc; // 结束时回调的函数
     te->clientData = clientData;
-    te->next = eventLoop->timeEventHead;
-    eventLoop->timeEventHead = te;
-    return id;
-}
+    // head -> node1 -> node3 添加链表的方式1，在最后追加，缺点时间复杂度为O(N)
+    // 在节点头添加 O(1)
+    te->next = eventLoop->timeEventHead;  // head -> node1 -> node2 内存中的链表，新增节点node3. head和node1可以理解为是一个节点
+    eventLoop->timeEventHead = te;        // node3->next = head , node3 -> node1 -> node2
+    return id;                            // 头节点指向node3 head = node3 , head -> node3 -> node1 -> node2
+}                                         // head -> node3 -> NULL  最开始，没有任何事件
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id) // O(N)
 {
     aeTimeEvent *te, *prev = NULL;
 
-    te = eventLoop->timeEventHead;
+    te = eventLoop->timeEventHead; // 头
     while(te) {
         if (te->id == id) {
-            if (prev == NULL)
+            if (prev == NULL)  // 为空说明是头
                 eventLoop->timeEventHead = te->next;
             else
-                prev->next = te->next;
-            if (te->finalizerProc)
+                prev->next = te->next;  // node1 -> node2 -> node3
+                                        // node1 -> node3
+                                        // node1 就是prev上一个遍历的指针
+            if (te->finalizerProc)  // 删除前调用回调函数
                 te->finalizerProc(eventLoop, te->clientData);
-            zfree(te);
+            zfree(te); // 释放内存空间
             return AE_OK;
         }
-        prev = te;
-        te = te->next;
+        prev = te; // prev 指向便利的前一个
+        te = te->next; // 下一个
     }
     return AE_ERR; /* NO event with the specified ID found */
 }
@@ -195,9 +212,12 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
-    aeTimeEvent *te = eventLoop->timeEventHead;
+    aeTimeEvent *te = eventLoop->timeEventHead; // 得到链表头
     aeTimeEvent *nearest = NULL;
 
+    // head -> node1 -> node2 -> node3
+    // nearest 找最近的节点
+    // 比较时间 ： 先比较秒 ，秒数相同再比较毫秒
     while(te) {
         if (!nearest || te->when_sec < nearest->when_sec ||
                 (te->when_sec == nearest->when_sec &&
@@ -209,29 +229,31 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 }
 
 /* Process time events */
-static int processTimeEvents(aeEventLoop *eventLoop) {
+// 处理时间事件
+static int processTimeEvents(aeEventLoop *eventLoop) { 
     int processed = 0;
     aeTimeEvent *te;
     long long maxId;
 
-    te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
+    te = eventLoop->timeEventHead; // 头
+    maxId = eventLoop->timeEventNextId-1; // 最大的
     while(te) {
         long now_sec, now_ms;
         long long id;
 
-        if (te->id > maxId) {
+        if (te->id > maxId) { // 跳过id大于timeEventNextId
             te = te->next;
             continue;
         }
+        // 获取当前时间
         aeGetTime(&now_sec, &now_ms);
-        if (now_sec > te->when_sec ||
-            (now_sec == te->when_sec && now_ms >= te->when_ms))
+        if (now_sec > te->when_sec || // 超时
+            (now_sec == te->when_sec && now_ms >= te->when_ms)) // 超时
         {
             int retval;
 
             id = te->id;
-            retval = te->timeProc(eventLoop, id, te->clientData);
+            retval = te->timeProc(eventLoop, id, te->clientData);  // 超时处理回调
             processed++;
             /* After an event is processed our time event list may
              * no longer be the same, so we restart from head.
@@ -246,12 +268,13 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
              * to flag deleted elements in a special way for later
              * deletion (putting references to the nodes to delete into
              * another linked list). */
-            if (retval != AE_NOMORE) {
+            if (retval != AE_NOMORE) { 
+                // 更新该事件的下一次超时时间  1000ms 12:00:00 12:00:01
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
-                aeDeleteTimeEvent(eventLoop, id);
+                aeDeleteTimeEvent(eventLoop, id); // -1 删除
             }
-            te = eventLoop->timeEventHead;
+            te = eventLoop->timeEventHead; // 会重头开始扫描。。。。
         } else {
             te = te->next;
         }
